@@ -160,12 +160,24 @@ func spaHandler() http.Handler {
 }
 
 // AuthMiddleware validates Bearer token when apiKey is non-empty.
+// Same-origin requests (detected via Origin header matching Host) skip auth,
+// allowing the browser-based MCP Inspector to connect without an API key.
 func AuthMiddleware(apiKey string, next http.Handler) http.Handler {
 	if apiKey == "" {
 		return next
 	}
 	log.Println("API_KEY configured, authentication enabled")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Same-origin check: browser requests (e.g. MCP Inspector) send Origin = Host.
+		// External clients (Claude Code, curl) typically don't send Origin, so they still need auth.
+		if origin := r.Header.Get("Origin"); origin != "" {
+			host := r.Host
+			if host != "" && origin == "http://"+host || origin == "https://"+host {
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+
 		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if token != apiKey {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
