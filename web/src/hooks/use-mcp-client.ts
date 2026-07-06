@@ -66,7 +66,7 @@ export function useMCPClient(): UseMCPClientResult {
 
       // Create client
       const mcpClient = new Client({
-        name: 'mcp-victorialogs-web',
+        name: 'mcp-inspector-web',
         version: '1.0.0',
       }, {
         capabilities: {}
