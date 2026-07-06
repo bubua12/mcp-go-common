@@ -302,6 +302,26 @@ func GetEnvInt(key string, defaultVal int) int {
 	return defaultVal
 }
 
+// NewLandingConfig creates a LandingConfig with a ToolLister that reads from
+// the given MCPServer. Convenient one-liner for adding a landing page:
+//
+//	cfg.LandingPage = mcputil.NewLandingConfig(mcpServer, "my-server", "1.0.0", "18080")
+func NewLandingConfig(s *server.MCPServer, name, version, port string) *LandingConfig {
+	toolsMap := s.ListTools()
+	tools := make([]ToolInfo, 0, len(toolsMap))
+	for _, t := range toolsMap {
+		tools = append(tools, ToolInfo{Name: t.Tool.Name, Description: t.Tool.Description})
+	}
+	return &LandingConfig{
+		Name:     name,
+		Version:  version,
+		Endpoint: fmt.Sprintf("http://localhost:%s/mcp", strings.TrimPrefix(port, ":")),
+		ToolLister: func() []ToolInfo {
+			return tools
+		},
+	}
+}
+
 // renderLandingPage renders the embedded landing.html template.
 func renderLandingPage(cfg *LandingConfig) http.Handler {
 	tmpl, err := template.ParseFS(landingHTML, "landing.html")
