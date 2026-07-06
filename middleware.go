@@ -51,8 +51,8 @@ type Config struct {
 type LandingConfig struct {
 	// Name is the MCP server name shown on the page header.
 	Name string
-	// Version is the server version string.
-	Version string
+	// Description is a short description shown below the name.
+	Description string
 }
 
 // clientSessions tracks clientInfo.name per MCP session (Mcp-Session-Id).
@@ -86,8 +86,8 @@ func Start(mcpServer *server.MCPServer, cfg Config) {
 		mux.HandleFunc("/api/info", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			json.NewEncoder(w).Encode(map[string]string{
-				"name":    lp.Name,
-				"version": lp.Version,
+				"name":        lp.Name,
+				"description": lp.Description,
 			})
 		})
 	}
@@ -109,9 +109,9 @@ func Start(mcpServer *server.MCPServer, cfg Config) {
 
 // NewLandingConfig creates a LandingConfig for the given server.
 //
-//	cfg.LandingPage = mcputil.NewLandingConfig("my-server", "1.0.0")
-func NewLandingConfig(name, version string) *LandingConfig {
-	return &LandingConfig{Name: name, Version: version}
+//	cfg.LandingPage = mcputil.NewLandingConfig("my-server", "统一日志查询 MCP Server")
+func NewLandingConfig(name, description string) *LandingConfig {
+	return &LandingConfig{Name: name, Description: description}
 }
 
 // spaHandler serves the embedded React SPA from web/dist.
