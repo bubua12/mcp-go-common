@@ -14,8 +14,10 @@ package mcputil
 
 import (
 	"bytes"
+	"embed"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"io"
 	"log"
 	"net/http"
@@ -28,6 +30,9 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+//go:embed landing.html
+var landingHTML embed.FS
+
 // Config holds the configuration for Start().
 type Config struct {
 	// Port is the listen port (e.g. "18080").
@@ -38,6 +43,30 @@ type Config struct {
 	HealthCheck func() bool
 	// BeforeStart is called before http.ListenAndServe.
 	BeforeStart func(port string)
+	// LandingPage enables a browser-facing landing page at GET / with setup
+	// instructions and tool inspection. Pass DefaultLandingPage() to get the
+	// standard page, or nil to skip.
+	LandingPage *LandingConfig
+}
+
+// LandingConfig configures the landing page served at GET /.
+type LandingConfig struct {
+	// Name is the MCP server name shown on the page (e.g. "log-mcp-server").
+	Name string
+	// Version is the server version string (e.g. "1.0.0").
+	Version string
+	// Endpoint is the full MCP endpoint URL shown for client configuration
+	// (e.g. "http://localhost:18089/mcp").
+	Endpoint string
+	// ToolLister returns the list of registered tools. Called on each /api/tools request.
+	// Pass nil to skip the tools API endpoint.
+	ToolLister func() []ToolInfo
+}
+
+// ToolInfo describes a registered MCP tool for the landing page.
+type ToolInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
 // clientSessions tracks clientInfo.name per MCP session (Mcp-Session-Id).
@@ -64,6 +93,28 @@ func Start(mcpServer *server.MCPServer, cfg Config) {
 		w.Write([]byte("ok"))
 	})
 
+	// Landing page: GET / + GET /api/tools
+	if cfg.LandingPage != nil {
+		lp := cfg.LandingPage
+		handler := renderLandingPage(lp)
+		mux.Handle("/", handler)
+
+		if lp.ToolLister != nil {
+			mux.HandleFunc("/api/tools", func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet {
+					w.WriteHeader(http.StatusMethodNotAllowed)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json; charset=utf-8")
+				json.NewEncoder(w).Encode(map[string]any{
+					"name":    lp.Name,
+					"version": lp.Version,
+					"tools":   lp.ToolLister(),
+				})
+			})
+		}
+	}
+
 	mux.Handle("/mcp", AuthMiddleware(cfg.APIKey, LogMiddleware(httpServer)))
 
 	if cfg.BeforeStart != nil {
@@ -71,6 +122,9 @@ func Start(mcpServer *server.MCPServer, cfg Config) {
 	}
 
 	log.Printf("listening on :%s/mcp", cfg.Port)
+	if cfg.LandingPage != nil {
+		log.Printf("landing page: http://localhost:%s/", cfg.Port)
+	}
 	if err := http.ListenAndServe(":"+cfg.Port, mux); err != nil {
 		log.Fatal(err)
 	}
@@ -246,4 +300,26 @@ func GetEnvInt(key string, defaultVal int) int {
 		}
 	}
 	return defaultVal
+}
+
+// renderLandingPage renders the embedded landing.html template.
+func renderLandingPage(cfg *LandingConfig) http.Handler {
+	tmpl, err := template.ParseFS(landingHTML, "landing.html")
+	if err != nil {
+		log.Printf("WARNING: failed to parse landing.html template: %v", err)
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "landing page template error", http.StatusInternalServerError)
+		})
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := tmpl.Execute(w, cfg); err != nil {
+			log.Printf("WARNING: landing page render error: %v", err)
+		}
+	})
 }

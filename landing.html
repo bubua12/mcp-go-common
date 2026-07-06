@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{.Name}} - MCP Server</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { background: #0f172a; }
+  .tool-card:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.3); }
+  .copy-btn:active { transform: scale(0.95); }
+  .gradient-border { background: linear-gradient(135deg, #3b82f6, #8b5cf6); padding: 1px; border-radius: 0.75rem; }
+  .gradient-border > div { background: #1e293b; border-radius: calc(0.75rem - 1px); }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  .fade-in { animation: fadeIn 0.3s ease-out forwards; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .status-ok { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+  .status-err { background: #ef4444; box-shadow: 0 0 6px #ef4444; }
+  pre code { font-size: 0.8125rem; }
+</style>
+</head>
+<body class="min-h-screen text-gray-200">
+<div class="max-w-4xl mx-auto px-6 py-12">
+
+  <!-- Header -->
+  <div class="text-center mb-10">
+    <div class="inline-flex items-center gap-3 mb-4">
+      <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xl font-bold shadow-lg">{{slice .Name 0 1}}</div>
+      <h1 class="text-3xl font-bold text-white">{{.Name}}</h1>
+    </div>
+    <p class="text-gray-400">MCP Server <span class="text-gray-500">v{{.Version}}</span></p>
+  </div>
+
+  <!-- Connection Info -->
+  <div class="gradient-border mb-8">
+    <div class="p-6">
+      <h2 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+        <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+        连接信息
+      </h2>
+      <div class="bg-slate-900 rounded-lg p-4 font-mono text-sm">
+        <div class="flex items-center justify-between">
+          <span class="text-gray-400">MCP Endpoint</span>
+          <button onclick="copyUrl()" class="copy-btn px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded text-xs text-gray-300 transition-colors">复制</button>
+        </div>
+        <code id="mcp-url" class="text-green-400 break-all">{{.Endpoint}}</code>
+      </div>
+    </div>
+  </div>
+
+  <!-- Client Setup -->
+  <div class="gradient-border mb-8">
+    <div class="p-6">
+      <h2 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+        <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        客户端配置
+      </h2>
+      <div class="space-y-4">
+        <!-- Claude Code -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-sm font-medium text-gray-300">Claude Code</span>
+            <button onclick="copyConfig('claude-code')" class="copy-btn px-2 py-0.5 bg-slate-700 hover:bg-slate-600 rounded text-xs text-gray-400 transition-colors">复制</button>
+          </div>
+          <pre class="bg-slate-900 rounded-lg p-4 overflow-x-auto"><code id="config-claude-code" class="text-gray-300">claude mcp add {{.Name}} --transport http {{.Endpoint}}</code></pre>
+        </div>
+        <!-- JSON Config -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-sm font-medium text-gray-300">通用 JSON 配置（Cursor / Cline / VS Code 等）</span>
+            <button onclick="copyConfig('json')" class="copy-btn px-2 py-0.5 bg-slate-700 hover:bg-slate-600 rounded text-xs text-gray-400 transition-colors">复制</button>
+          </div>
+          <pre class="bg-slate-900 rounded-lg p-4 overflow-x-auto"><code id="config-json" class="text-gray-300">{
+  "mcpServers": {
+    "{{.Name}}": {
+      "type": "http",
+      "url": "{{.Endpoint}}"
+    }
+  }
+}</code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tools -->
+  <div class="gradient-border mb-8">
+    <div class="p-6">
+      <h2 class="text-lg font-semibold text-white mb-1 flex items-center gap-2">
+        <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+        工具列表
+      </h2>
+      <p class="text-sm text-gray-500 mb-4" id="tool-count">加载中...</p>
+      <div id="tools-list" class="grid gap-3">
+        <div class="text-gray-500 text-sm py-4 text-center">正在加载工具列表...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="text-center text-gray-600 text-sm mt-12">
+    <p>Powered by <a href="https://github.com/bubua12/mcp-go-common" class="text-gray-500 hover:text-gray-400 transition-colors">mcp-go-common</a></p>
+  </div>
+
+</div>
+
+<script>
+function copyUrl() {
+  const url = document.getElementById('mcp-url').textContent;
+  navigator.clipboard.writeText(url).then(() => {
+    const btn = event.target;
+    btn.textContent = '已复制!';
+    setTimeout(() => btn.textContent = '复制', 1500);
+  });
+}
+
+function copyConfig(id) {
+  const text = document.getElementById('config-' + id).textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = event.target;
+    btn.textContent = '已复制!';
+    setTimeout(() => btn.textContent = '复制', 1500);
+  });
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function truncate(text, maxLen) {
+  if (text.length <= maxLen) return escapeHtml(text);
+  return escapeHtml(text.substring(0, maxLen)) + '...';
+}
+
+fetch('/api/tools')
+  .then(r => r.json())
+  .then(data => {
+    const tools = data.tools || [];
+    document.getElementById('tool-count').textContent = tools.length + ' 个工具已注册';
+    const container = document.getElementById('tools-list');
+    if (tools.length === 0) {
+      container.innerHTML = '<div class="text-gray-500 text-sm py-4 text-center">暂无已注册的工具</div>';
+      return;
+    }
+    container.innerHTML = tools.map((t, i) => `
+      <div class="tool-card bg-slate-800/50 rounded-lg p-4 border border-slate-700/50 transition-all fade-in" style="animation-delay:${i * 30}ms">
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0 flex-1">
+            <code class="text-blue-400 font-medium text-sm">${escapeHtml(t.name)}</code>
+            <p class="text-gray-400 text-sm mt-1 leading-relaxed">${truncate(t.description, 160)}</p>
+          </div>
+          <div class="flex-shrink-0 mt-1">
+            <span class="inline-block px-2 py-0.5 bg-slate-700 rounded text-xs text-gray-500">tool</span>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  })
+  .catch(() => {
+    document.getElementById('tool-count').textContent = '无法加载工具列表';
+    document.getElementById('tools-list').innerHTML = '<div class="text-red-400 text-sm py-4 text-center">加载失败，请检查 /api/tools 端点</div>';
+  });
+</script>
+</body>
+</html>
