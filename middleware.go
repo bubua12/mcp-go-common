@@ -45,6 +45,10 @@ type Config struct {
 	// instructions and MCP Inspector. Pass NewLandingConfig() to get the
 	// standard page, or nil to skip.
 	LandingPage *LandingConfig
+	// ExtraRoutes registers additional HTTP routes on the mux before starting
+	// (e.g. a web viewer). Routes added here are NOT behind APIKey auth by
+	// default; wrap sensitive handlers with AuthMiddleware(cfg.APIKey, ...).
+	ExtraRoutes func(mux *http.ServeMux)
 }
 
 // LandingConfig configures the landing page served at GET /.
@@ -93,6 +97,10 @@ func Start(mcpServer *server.MCPServer, cfg Config) {
 	}
 
 	mux.Handle("/mcp", AuthMiddleware(cfg.APIKey, LogMiddleware(httpServer)))
+
+	if cfg.ExtraRoutes != nil {
+		cfg.ExtraRoutes(mux)
+	}
 
 	if cfg.BeforeStart != nil {
 		cfg.BeforeStart(cfg.Port)
