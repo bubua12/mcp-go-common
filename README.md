@@ -102,7 +102,10 @@ http.ListenAndServe(":8080", mux)
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `Port` | `string` | 监听端口，如 `"8080"` |
-| `APIKey` | `string` | 非空时启用 Bearer Token 认证 |
+| `APIKey` | `string` | 非空时启用鉴权：`/mcp` 要 Bearer 或 Web Session；浏览器 UI 需 `/login` |
+| `SessionTTL` | `string` | Web 登录 Cookie 有效期，如 `24h`（默认 24h） |
+| `AllowSameOriginMCP` | `*bool` | 是否恢复 /mcp 同源免密；`nil` 时看环境变量 `MCP_ALLOW_SAME_ORIGIN`（默认关） |
+| `ProtectExtraRoutes` | `*bool` | APIKey 下是否把 ExtraRoutes 放进 WebAuth（默认 true） |
 | `HealthCheck` | `func() bool` | 自定义健康检查，返回 false 则 /health 返回 503 |
 | `BeforeStart` | `func(port string)` | 启动前回调，用于打印日志 |
 
@@ -110,7 +113,10 @@ http.ListenAndServe(":8080", mux)
 
 | 函数 | 说明 |
 |------|------|
-| `AuthMiddleware(apiKey, next)` | API Key 认证（空 apiKey 则跳过） |
+| `AuthMiddleware(apiKey, next)` | MCP/API 鉴权：Bearer（空 apiKey 跳过；默认无同源免密） |
+| `AuthMiddlewareOpts` / `AuthMiddlewareFromEnv` | 可开 Session Cookie、同源免密 |
+| `WebAuthMiddleware(apiKey, session, next)` | 浏览器 UI 鉴权（未登录 HTML→/login，API→401） |
+| `RegisterAuthRoutes(mux, apiKey, session)` | 注册 `/login`、`/logout` |
 | `LogMiddleware(next)` | JSON-RPC 日志 + 客户端追踪 |
 
 ### 日志输出格式
@@ -127,6 +133,33 @@ http.ListenAndServe(":8080", mux)
 - `resources/*`、`prompts/*` 静默不打印
 - 非 MCP 请求（健康检查等）静默不打印
 - 客户端名从 `initialize` 的 `clientInfo.name` 自动识别
+
+### Web 鉴权（API_KEY）
+
+当 `APIKey` / 环境变量 `API_KEY` 非空时：
+
+1. 浏览器打开 Landing 或 ExtraRoutes（如 `/history`）→ 跳转 `/login`
+2. 输入与 MCP 客户端相同的 API Key → 写入 HttpOnly Cookie
+3. `/mcp` 接受 `Authorization: Bearer <key>` **或** 有效登录 Cookie（Inspector 登录后可用）
+4. `/health` 始终公开
+
+环境变量：
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `API_KEY` | 空 | 非空启用鉴权 |
+| `WEB_SESSION_TTL` | `24h` | 可在 server 侧读入 `Config.SessionTTL` |
+| `MCP_ALLOW_SAME_ORIGIN` | `false` | `true` 时恢复旧版浏览器同源访问 `/mcp` 免 Bearer |
+
+手写 mux 的 server（未用 `Start`）示例：
+
+```go
+session := mcputil.NewSessionStore(apiKey, mcputil.ParseSessionTTL(os.Getenv("WEB_SESSION_TTL")))
+mcputil.RegisterAuthRoutes(mux, apiKey, session)
+mux.Handle("/mcp", mcputil.AuthMiddlewareFromEnv(apiKey, mcputil.LogMiddleware(mcpHTTP), session))
+mux.Handle("/history/", mcputil.WebAuthMiddleware(apiKey, session, historyHandler))
+mux.Handle("/", mcputil.WebAuthMiddleware(apiKey, session, spaHandler))
+```
 
 ### 工具结果
 

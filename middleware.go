@@ -35,8 +35,19 @@ import (
 type Config struct {
 	// Port is the listen port (e.g. "18080").
 	Port string
-	// APIKey enables Bearer token authentication when non-empty.
+	// APIKey enables authentication when non-empty:
+	//   - /mcp requires Bearer API_KEY or a valid web session cookie
+	//   - browser UI (landing + protected ExtraRoutes) requires /login
+	// Empty APIKey keeps open behavior (no auth).
 	APIKey string
+	// SessionTTL controls web login cookie lifetime (e.g. "24h"). Empty → 24h.
+	SessionTTL string
+	// AllowSameOriginMCP restores legacy browser same-origin bypass on /mcp.
+	// nil → follow env MCP_ALLOW_SAME_ORIGIN (default false).
+	AllowSameOriginMCP *bool
+	// ProtectExtraRoutes mounts ExtraRoutes behind WebAuth when APIKey is set.
+	// nil → true.
+	ProtectExtraRoutes *bool
 	// HealthCheck is called for GET /health. Return true for 200 OK.
 	HealthCheck func() bool
 	// BeforeStart is called before http.ListenAndServe.
@@ -45,9 +56,9 @@ type Config struct {
 	// instructions and MCP Inspector. Pass NewLandingConfig() to get the
 	// standard page, or nil to skip.
 	LandingPage *LandingConfig
-	// ExtraRoutes registers additional HTTP routes on the mux before starting
-	// (e.g. a web viewer). Routes added here are NOT behind APIKey auth by
-	// default; wrap sensitive handlers with AuthMiddleware(cfg.APIKey, ...).
+	// ExtraRoutes registers additional HTTP routes (e.g. a web viewer).
+	// When APIKey is set and ProtectExtraRoutes is true (default), these routes
+	// are served behind WebAuthMiddleware.
 	ExtraRoutes func(mux *http.ServeMux)
 }
 
@@ -73,6 +84,13 @@ func Start(mcpServer *server.MCPServer, cfg Config) {
 	httpServer := server.NewStreamableHTTPServer(mcpServer)
 	mux := http.NewServeMux()
 
+	var session *SessionStore
+	if cfg.APIKey != "" {
+		session = NewSessionStore(cfg.APIKey, ParseSessionTTL(cfg.SessionTTL))
+		RegisterAuthRoutes(mux, cfg.APIKey, session)
+		log.Printf("web auth enabled (login: /login, session_ttl: %s)", session.TTL())
+	}
+
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		if cfg.HealthCheck != nil && !cfg.HealthCheck() {
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -83,11 +101,23 @@ func Start(mcpServer *server.MCPServer, cfg Config) {
 		w.Write([]byte("ok"))
 	})
 
-	// Landing page: React SPA + /api/info
+	allowSO := EnvTruthy("MCP_ALLOW_SAME_ORIGIN")
+	if cfg.AllowSameOriginMCP != nil {
+		allowSO = *cfg.AllowSameOriginMCP
+	}
+	mux.Handle("/mcp", AuthMiddlewareOpts(cfg.APIKey, LogMiddleware(httpServer), AuthOptions{
+		AllowSameOrigin: allowSO,
+		Session:         session,
+	}))
+
+	// UI mux: landing + optional extra routes (history viewers, etc.)
+	uiMux := http.NewServeMux()
+	hasUI := false
 	if cfg.LandingPage != nil {
+		hasUI = true
 		lp := cfg.LandingPage
-		mux.Handle("/", spaHandler())
-		mux.HandleFunc("/api/info", func(w http.ResponseWriter, r *http.Request) {
+		uiMux.Handle("/", spaHandler())
+		uiMux.HandleFunc("/api/info", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			json.NewEncoder(w).Encode(map[string]string{
 				"name":        lp.Name,
@@ -96,10 +126,26 @@ func Start(mcpServer *server.MCPServer, cfg Config) {
 		})
 	}
 
-	mux.Handle("/mcp", AuthMiddleware(cfg.APIKey, LogMiddleware(httpServer)))
+	protectExtra := true
+	if cfg.ProtectExtraRoutes != nil {
+		protectExtra = *cfg.ProtectExtraRoutes
+	}
 
 	if cfg.ExtraRoutes != nil {
-		cfg.ExtraRoutes(mux)
+		if cfg.APIKey != "" && protectExtra {
+			hasUI = true
+			cfg.ExtraRoutes(uiMux)
+		} else {
+			cfg.ExtraRoutes(mux)
+		}
+	}
+
+	if hasUI {
+		var ui http.Handler = uiMux
+		if cfg.APIKey != "" {
+			ui = WebAuthMiddleware(cfg.APIKey, session, uiMux)
+		}
+		mux.Handle("/", ui)
 	}
 
 	if cfg.BeforeStart != nil {
@@ -167,33 +213,7 @@ func spaHandler() http.Handler {
 	})
 }
 
-// AuthMiddleware validates Bearer token when apiKey is non-empty.
-// Same-origin requests (detected via Origin header matching Host) skip auth,
-// allowing the browser-based MCP Inspector to connect without an API key.
-func AuthMiddleware(apiKey string, next http.Handler) http.Handler {
-	if apiKey == "" {
-		return next
-	}
-	log.Println("API_KEY configured, authentication enabled")
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Same-origin check: browser requests (e.g. MCP Inspector) send Origin = Host.
-		// External clients (Claude Code, curl) typically don't send Origin, so they still need auth.
-		if origin := r.Header.Get("Origin"); origin != "" {
-			host := r.Host
-			if host != "" && origin == "http://"+host || origin == "https://"+host {
-				next.ServeHTTP(w, r)
-				return
-			}
-		}
-
-		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if token != apiKey {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
+// AuthMiddleware / WebAuth: see webauth.go
 
 // LogMiddleware parses JSON-RPC body and prints structured logs with client tracking:
 //   - [TOOL CALL]  — tools/call with tool name, args, duration
