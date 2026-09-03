@@ -8,8 +8,18 @@ export interface MCPTool {
   inputSchema?: Record<string, unknown>
 }
 
+export interface MCPResource {
+  uri: string
+  name: string
+  title?: string
+  description?: string
+  mimeType?: string
+  size?: number
+}
+
 export interface MCPPrompt {
   name: string
+  title?: string
   description?: string
   arguments?: Array<{
     name: string
@@ -17,7 +27,6 @@ export interface MCPPrompt {
     required?: boolean
   }>
 }
-
 export interface MCPServerInfo {
   name: string
   version: string
@@ -30,20 +39,22 @@ export interface UseMCPClientResult {
   client: Client | null
   serverInfo: MCPServerInfo | null
   tools: MCPTool[]
+  resources: MCPResource[]
   prompts: MCPPrompt[]
   isConnected: boolean
   isConnecting: boolean
   error: Error | null
   connect: () => Promise<void>
   disconnect: () => Promise<void>
-  callTool: (name: string, args: Record<string, unknown>) => Promise<void>
-  getPrompt: (name: string, args: Record<string, string>) => Promise<void>
+  callTool: (name: string, args: Record<string, unknown>) => Promise<unknown>
+  readResource: (uri: string) => Promise<unknown>
+  getPrompt: (name: string, args: Record<string, string>) => Promise<unknown>
 }
-
 export function useMCPClient(): UseMCPClientResult {
   const [client, setClient] = useState<Client | null>(null)
   const [serverInfo, setServerInfo] = useState<MCPServerInfo | null>(null)
   const [tools, setTools] = useState<MCPTool[]>([])
+  const [resources, setResources] = useState<MCPResource[]>([])
   const [prompts, setPrompts] = useState<MCPPrompt[]>([])
   const [isConnected, setIsConnected] = useState(false)
   const [isConnecting, setIsConnecting] = useState(false)
@@ -99,18 +110,45 @@ export function useMCPClient(): UseMCPClientResult {
         console.warn('Failed to fetch tools')
       }
 
+      // Fetch resources
+      try {
+        const resourcesResult = await mcpClient.listResources()
+        setResources((resourcesResult.resources || []).map(r => {
+          let title: string | undefined
+          if (r && typeof r === 'object' && 'title' in r && typeof r.title === 'string') {
+            title = r.title
+          }
+          return {
+            uri: r.uri,
+            name: r.name,
+            title,
+            description: r.description,
+            mimeType: r.mimeType,
+            size: r.size,
+          }
+        }))
+      } catch {
+        // Server may not support resources
+      }
+
       // Fetch prompts
       try {
         const promptsResult = await mcpClient.listPrompts()
-        setPrompts(promptsResult.prompts.map(p => ({
-          name: p.name,
-          description: p.description,
-          arguments: p.arguments,
-        })))
+        setPrompts((promptsResult.prompts || []).map(p => {
+          let title: string | undefined
+          if (p && typeof p === 'object' && 'title' in p && typeof p.title === 'string') {
+            title = p.title
+          }
+          return {
+            name: p.name,
+            title,
+            description: p.description,
+            arguments: p.arguments,
+          }
+        }))
       } catch {
-        console.warn('Failed to fetch prompts')
+        // Server may not support prompts
       }
-
       setIsConnected(true)
     } catch (err) {
       setError(err instanceof Error ? err : new Error(String(err)))
@@ -132,6 +170,7 @@ export function useMCPClient(): UseMCPClientResult {
     setClient(null)
     setServerInfo(null)
     setTools([])
+    setResources([])
     setPrompts([])
     setIsConnected(false)
     setError(null)
@@ -145,6 +184,13 @@ export function useMCPClient(): UseMCPClientResult {
     return result
   }, [])
 
+  const readResource = useCallback(async (uri: string) => {
+    if (!clientRef.current) {
+      throw new Error('Not connected to MCP server')
+    }
+    const result = await clientRef.current.readResource({ uri })
+    return result
+  }, [])
   const getPrompt = useCallback(async (name: string, args: Record<string, string>) => {
     if (!clientRef.current) {
       throw new Error('Not connected to MCP server')
@@ -164,13 +210,14 @@ export function useMCPClient(): UseMCPClientResult {
     client,
     serverInfo,
     tools,
+    resources,
     prompts,
     isConnected,
     isConnecting,
-    error,
     connect,
     disconnect,
     callTool,
+    readResource,
     getPrompt,
   }
 }
