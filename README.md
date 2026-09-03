@@ -1,22 +1,60 @@
 # mcp-go-common
 
-开箱即用的 MCP Server 开发模板，基于 [mcp-go](https://github.com/mark3labs/mcp-go)。
+开箱即用的 MCP（Model Context Protocol）Server 核心基础库，基于 [mcp-go](https://github.com/mark3labs/mcp-go)。
 
-让你用 3 行代码启动一个完整的 MCP Server，内置认证、日志、健康检查。
+让你用 3 行代码启动一个完整的生产级 MCP Server，内置现代 React 调试面板（Inspector）、API Key 与 Web 登录鉴权、高危操作二次确认（Elicitation）、分级日志与健康检查。
 
-## 功能
+---
 
-- **API Key 认证中间件** — `Authorization: Bearer <key>` 校验
-- **分级日志中间件** — 解析 JSON-RPC body，按类型分类打印（TOOL CALL / LIFECYCLE / DISCOVERY）
-- **客户端追踪** — 自动从 `initialize` 的 `clientInfo.name` 识别客户端，通过 `Mcp-Session-Id` 跨请求追踪
-- **健康检查端点** — `/health` 支持自定义检查逻辑
-- **工具结果构造** — `TextResult` / `ErrorResult`
-- **通用启动模板** — `Start()` 一行搞定 mux、中间件、端口监听
+## 核心特性
+
+- **现代 React 交互面板（Web Landing & Inspector）** — 内嵌 Vite + React + TS 现代化单页应用，直观可视化调试 Tools、Resources、Prompts
+- **API Key & Web 登录双模鉴权** — 支持 `Authorization: Bearer <key>` 接口鉴权与基于 HttpOnly Cookie 的浏览器端登录拦截防护
+- **高危操作二次确认（Elicitation）** — 封装标准人机协同（Human in the loop）弹窗确认机制，支持四态结果精细审计
+- **分级日志中间件** — 解析 JSON-RPC 报文，按类型分类彩色打印（TOOL CALL / LIFECYCLE / DISCOVERY）
+- **客户端自动追踪** — 自动从 `initialize` 的 `clientInfo.name` 识别调用方，通过 `Mcp-Session-Id` 实现全链路追踪
+- **健康检查与优雅退出** — 自动挂载 `/health` 端点，支持注入业务级自定义健康检查逻辑
+- **开箱即用启动器** — `mcputil.Start()` 一行代码搞定 Mux、中间件链、静态资源托管与 HTTP 端口监听
+
+---
+
+## 版本选型指南（Version Selection Guide）
+
+`mcp-go-common` 历经多个版本的迭代演进。你可以根据下游 MCP Server 的具体安全和功能需求选择最适合的版本：
+
+### 🎯 快速决策树
+
+* **新服务 / 知识库 / 包含文档与提示词的服务**：👉 **`v0.7.0`（强烈推荐）**
+  * 拥有完整 MCP 三原语（Tools + Resources + Prompts）的在线预览与交互能力，且向下严格兼容纯 Tools 服务。
+* **暴露在公网 / 共享网络，需要保护调试页面的服务**：👉 **`v0.6.0+`**
+  * 引入 Web 登录页与 HttpOnly Session Cookie，非授权用户无法访问 Inspector 与自定义后台（如 `/history`）。
+* **涉及写库、重启、远程命令等高危运维操作的服务**：👉 **`v0.5.1+`**
+  * 包含 Elicitation 弹窗确认机制，并支持四态（Accept / Reject / Cancel / Timeout）结果审计。
+* **纯内网、简单只读工具调用的存量服务**：👉 **`v0.4.2`**
+  * 轻量稳定，具备基础的 API Key 校验、同源免密和复制兼容。
+
+---
+
+### 📊 版本功能支持矩阵
+
+| 版本 (Tag) | 基础启动与日志 | React Inspector | Elicitation 人机确认 | Web 登录鉴权 (Cookie) | Resources & Prompts 预览 | 适用场景与代表服务 |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| **`v0.7.0`** *(最新)* | ✅ | ✅ | ✅ (四态枚举) | ✅ (Session Cookie) | **✅ (智能条件渲染)** | **全功能推荐**（如 `dev-knowledge-mcp-server`） |
+| **`v0.6.0`** | ✅ | ✅ (仅Tools) | ✅ (四态枚举) | **✅ (新增登录防护)** | ❌ | **带管理后台/公网访问**（如 `ssh-mcp-server`） |
+| **`v0.5.1`** | ✅ | ✅ (仅Tools) | **✅ (支持四态枚举)** | ❌ (同源免密) | ❌ | **需要严格命令审核的服务** |
+| **`v0.5.0`** | ✅ | ✅ (仅Tools) | **✅ (首次引入)** | ❌ (同源免密) | ❌ | 支持二次弹窗确认与 ExtraRoutes 扩展 |
+| **`v0.4.2`** | ✅ | ✅ (仅Tools) | ❌ | ❌ (同源免密) | ❌ | **纯内网存量服务**（如 `mysql`, `redis`, `loki`） |
+| **`v0.4.1`** | ✅ | ✅ (仅Tools) | ❌ | ❌ (同源免密) | ❌ | 首次支持 Inspector 同源直连免 Bearer |
+| **`v0.4.0`** | ✅ | ✅ (仅Tools) | ❌ | ❌ | ❌ | 升级 mcp-go 至 v0.55.1、Go 1.25.5 |
+| **`v0.3.0`** | ✅ | **✅ (首发SPA)** | ❌ | ❌ | ❌ | 首次由单文件 html 升级为 React SPA |
+| **`v0.2.0`** | ✅ | ❌ (旧静态html) | ❌ | ❌ | ❌ | 最初的脚手架版本 |
+
+---
 
 ## 快速开始
 
 ```bash
-go get github.com/bubua12/mcp-go-common
+go get github.com/bubua12/mcp-go-common@v0.7.0
 ```
 
 ### 最简用法（3 行启动）
@@ -25,103 +63,108 @@ go get github.com/bubua12/mcp-go-common
 package main
 
 import (
+    "context"
     "os"
-    "github.com/mark3labs/mcp-go/mcp"
+
     mcputil "github.com/bubua12/mcp-go-common"
+    "github.com/mark3labs/mcp-go/mcp"
 )
 
 func main() {
+    // 1. 创建 MCP Server
     mcpServer := mcputil.NewServer("my-server", "1.0.0")
 
+    // 2. 注册工具
     mcpServer.AddTool(mcp.Tool{
         Name:        "hello",
-        Description: "Say hello",
-        InputSchema: mcp.ToolInputSchema{Type: "object", Properties: map[string]any{
-            "name": map[string]any{"type": "string", "description": "Your name"},
-        }},
+        Description: "Say hello to someone",
+        InputSchema: mcp.ToolInputSchema{
+            Type: "object",
+            Properties: map[string]any{
+                "name": map[string]any{"type": "string", "description": "Your name"},
+            },
+        },
     }, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
         name := req.GetString("name", "world")
         return mcputil.TextResult("Hello, " + name + "!"), nil
     })
 
+    // 3. 一键启动 HTTP 服务（自动挂载 /mcp, /health 和 Landing/Inspector）
     mcputil.Start(mcpServer, mcputil.Config{
-        Port:   mcputil.GetEnv("LISTEN_PORT", "8080"),
-        APIKey: os.Getenv("API_KEY"),
+        Port:        mcputil.GetEnv("LISTEN_PORT", "8080"),
+        APIKey:      os.Getenv("API_KEY"),
+        LandingPage: mcputil.NewLandingConfig("my-server", "My Custom MCP Server"),
     })
 }
 ```
 
-### 自定义健康检查
+---
 
+### 高级功能配置
+
+#### 1. 自定义健康检查
 ```go
 mcputil.Start(mcpServer, mcputil.Config{
     Port:   "8080",
     APIKey: os.Getenv("API_KEY"),
     HealthCheck: func() bool {
-        // 自定义检查逻辑，返回 false 则 /health 返回 503
+        // 自定义检查逻辑，返回 false 时 /health 将自动响应 HTTP 503
         return db.Ping() == nil
     },
 })
 ```
 
-### 自定义启动逻辑
-
+#### 2. 自定义业务路由挂载（ExtraRoutes）
 ```go
 mcputil.Start(mcpServer, mcputil.Config{
     Port:   "8080",
     APIKey: os.Getenv("API_KEY"),
-    BeforeStart: func(port string) {
-        log.Printf("🚀 my-server starting on :%s", port)
+    ExtraRoutes: func(mux *http.ServeMux) {
+        // 挂载你自己的业务端点，会自动受 Web 登录认证保护
+        mux.HandleFunc("/custom-metrics", myMetricsHandler)
     },
 })
 ```
 
-### 只用中间件（不用 Start）
-
-如果需要更多控制（如自定义路由、无认证等），可以单独使用中间件：
-
+#### 3. Elicitation 人机二次确认调用示例
 ```go
-httpServer := server.NewStreamableHTTPServer(mcpServer)
-mux := http.NewServeMux()
-mux.Handle("/mcp", mcputil.AuthMiddleware(apiKey, mcputil.LogMiddleware(httpServer)))
-mux.HandleFunc("/health", myHealthHandler)
-http.ListenAndServe(":8080", mux)
+// 在高危 Tool 处理函数内部发起弹窗确认
+result, err := mcputil.RequestConfirmation(ctx, "即将执行 rm -rf 操作，请确认是否授权？")
+switch result {
+case mcputil.ConfirmAccepted:
+    // 用户在 UI 上点击确认，继续执行
+case mcputil.ConfirmRejected:
+    return mcputil.ErrorResult("操作已被用户拒绝"), nil
+case mcputil.ConfirmTimeout:
+    return mcputil.ErrorResult("确认超时，操作已取消"), nil
+}
 ```
 
-## API 参考
+---
 
-### 创建 Server
+## API 与配置参考
 
-| 函数 | 说明 |
-|------|------|
-| `NewServer(name, version)` | 创建 MCP Server（等价于 `server.NewMCPServer` + `WithToolCapabilities(true)`） |
-| `Start(mcpServer, cfg)` | 一键启动（mux + 中间件 + /health + /mcp + ListenAndServe） |
-
-### Config
+### Config 字段清单
 
 | 字段 | 类型 | 说明 |
-|------|------|------|
-| `Port` | `string` | 监听端口，如 `"8080"` |
-| `APIKey` | `string` | 非空时启用鉴权：`/mcp` 要 Bearer 或 Web Session；浏览器 UI 需 `/login` |
-| `SessionTTL` | `string` | Web 登录 Cookie 有效期，如 `24h`（默认 24h） |
-| `AllowSameOriginMCP` | `*bool` | 是否恢复 /mcp 同源免密；`nil` 时看环境变量 `MCP_ALLOW_SAME_ORIGIN`（默认关） |
-| `ProtectExtraRoutes` | `*bool` | APIKey 下是否把 ExtraRoutes 放进 WebAuth（默认 true） |
-| `HealthCheck` | `func() bool` | 自定义健康检查，返回 false 则 /health 返回 503 |
-| `BeforeStart` | `func(port string)` | 启动前回调，用于打印日志 |
+| :--- | :--- | :--- |
+| `Port` | `string` | 监听端口，如 `"18080"` |
+| `APIKey` | `string` | 非空时启用安全鉴权：`/mcp` 要求 Bearer 令牌或 Session Cookie；浏览器访问强制要求 `/login` |
+| `SessionTTL` | `string` | Web 登录 Cookie 凭证有效期，如 `"24h"`（默认 24 小时） |
+| `AllowSameOriginMCP` | `*bool` | 是否允许浏览器同源免 Bearer 直连 `/mcp`；默认跟随环境变量 `MCP_ALLOW_SAME_ORIGIN`（默认关闭） |
+| `ProtectExtraRoutes` | `*bool` | 是否将 `ExtraRoutes` 挂载的自定义路由纳入 Web 鉴权保护（默认 `true`） |
+| `HealthCheck` | `func() bool` | 业务自定义健康检查回调函数，返回 `false` 则 `/health` 响应 503 |
+| `BeforeStart` | `func(port string)` | 启动监听前的生命周期回调，常用于打印就绪日志 |
+| `ExtraRoutes` | `func(mux *http.ServeMux)` | 注入业务自定义端点的钩子函数 |
+| `LandingPage` | `*LandingConfig` | 欢迎页与 Inspector 配置，传入 `nil` 则关闭 Web 调试页面 |
 
-### 中间件
+---
 
-| 函数 | 说明 |
-|------|------|
-| `AuthMiddleware(apiKey, next)` | MCP/API 鉴权：Bearer（空 apiKey 跳过；默认无同源免密） |
-| `AuthMiddlewareOpts` / `AuthMiddlewareFromEnv` | 可开 Session Cookie、同源免密 |
-| `WebAuthMiddleware(apiKey, session, next)` | 浏览器 UI 鉴权（未登录 HTML→/login，API→401） |
-| `RegisterAuthRoutes(mux, apiKey, session)` | 注册 `/login`、`/logout` |
-| `LogMiddleware(next)` | JSON-RPC 日志 + 客户端追踪 |
+### 日志格式规范
 
-### 日志输出格式
+内置的 `LogMiddleware` 会自动解析 JSON-RPC 载荷并输出结构化耗时追踪：
 
-```
+```text
 [LIFECYCLE]   initialize               ← claude-code/10.0.0.1:54321  148µs
 [LIFECYCLE]   initialized              ← claude-code/10.0.0.1:54321  79µs
 [DISCOVERY]   tools/list               ← claude-code/10.0.0.1:54321  313µs
@@ -130,57 +173,14 @@ http.ListenAndServe(":8080", mux)
 [MCP]        resources/list            ← claude-code/10.0.0.1:54321  97µs
 ```
 
-- `resources/*`、`prompts/*` 静默不打印
-- 非 MCP 请求（健康检查等）静默不打印
-- 客户端名从 `initialize` 的 `clientInfo.name` 自动识别
+---
 
-### Web 鉴权（API_KEY）
+## 核心依赖基准
 
-当 `APIKey` / 环境变量 `API_KEY` 非空时：
+- **Go 语言**: `Go 1.25+`
+- **MCP 官方 SDK**: [github.com/mark3labs/mcp-go](https://github.com/mark3labs/mcp-go) `v0.55.1+`
+- **前端工具链**: Vite 5 + React 18 + TailwindCSS + Lucide Icons
 
-1. 浏览器打开 Landing 或 ExtraRoutes（如 `/history`）→ 跳转 `/login`
-2. 输入与 MCP 客户端相同的 API Key → 写入 HttpOnly Cookie
-3. `/mcp` 接受 `Authorization: Bearer <key>` **或** 有效登录 Cookie（Inspector 登录后可用）
-4. `/health` 始终公开
+## 开源协议
 
-环境变量：
-
-| 变量 | 默认 | 说明 |
-|------|------|------|
-| `API_KEY` | 空 | 非空启用鉴权 |
-| `WEB_SESSION_TTL` | `24h` | 可在 server 侧读入 `Config.SessionTTL` |
-| `MCP_ALLOW_SAME_ORIGIN` | `false` | `true` 时恢复旧版浏览器同源访问 `/mcp` 免 Bearer |
-
-手写 mux 的 server（未用 `Start`）示例：
-
-```go
-session := mcputil.NewSessionStore(apiKey, mcputil.ParseSessionTTL(os.Getenv("WEB_SESSION_TTL")))
-mcputil.RegisterAuthRoutes(mux, apiKey, session)
-mux.Handle("/mcp", mcputil.AuthMiddlewareFromEnv(apiKey, mcputil.LogMiddleware(mcpHTTP), session))
-mux.Handle("/history/", mcputil.WebAuthMiddleware(apiKey, session, historyHandler))
-mux.Handle("/", mcputil.WebAuthMiddleware(apiKey, session, spaHandler))
-```
-
-### 工具结果
-
-| 函数 | 说明 |
-|------|------|
-| `TextResult(text)` | 成功结果（isError=false） |
-| `ErrorResult(msg)` | 错误结果（isError=true，LLM 仍可读取错误信息） |
-
-### 工具函数
-
-| 函数 | 说明 |
-|------|------|
-| `FmtDuration(d)` | 格式化耗时：`148µs` / `2.0ms` / `1.23s` |
-| `GetEnv(key, default)` | 读取环境变量，支持默认值 |
-| `GetEnvInt(key, default)` | 读取整数环境变量，支持默认值 |
-
-## 依赖
-
-- Go 1.25+
-- [github.com/mark3labs/mcp-go](https://github.com/mark3labs/mcp-go) v0.43.2+
-
-## License
-
-MIT
+[MIT](LICENSE)
